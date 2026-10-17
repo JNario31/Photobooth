@@ -1,5 +1,6 @@
 from picamera2 import Picamera2, Preview
 from libcamera import ColorSpace
+from PIL import Image
 import time
 
 picam2 = Picamera2()
@@ -10,5 +11,10 @@ picam2.start(show_preview=True)
 
 time.sleep(1)
 picam2.switch_mode(capture_config)
-picam2.capture_file("test.jpg")
+
+# Uncomment if you want to see picture take
+# picam2.capture_file("test.jpg")
+
+img = picam2.capture_image()
 picam2.stop()
+
