@@ -50,8 +50,8 @@ def image_processing(pics):
     for pic in pics:
        
         photo = ImageOps.fit(pic, (PHOTO_W,PHOTO_H))
-        page.paste(pic, (ORIGIN_LEFT, y))
-        page.paste(pic, (ORIGIN_RIGHT, y))
+        page.paste(photo, (ORIGIN_LEFT, y))
+        page.paste(photo, (ORIGIN_RIGHT, y))
         y += PHOTO_H + GAP
     page.save("print.jpg", quality=95)
 
