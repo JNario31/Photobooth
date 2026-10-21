@@ -1,8 +1,9 @@
 from picamera2 import Picamera2, Preview
 from libcamera import ColorSpace
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw, ImageFont
 import time
 import numpy as np
+import math
 
 # Framebuffer (values from /sys/class/graphics/fb0)
 FB_H, STRIDE = 480, 3200
@@ -33,7 +34,42 @@ PHOTO_H = PHOTO_W * 2 // 3                     # 340 (3:2)
 ORIGIN_LEFT = MARGIN                           # 40
 ORIGIN_RIGHT = (PAGE_W - STRIP_W) + MARGIN     # 631
 
-COUNTDOWN_S = 10
+# PREVIEW
+PREV_H, PREV_W = 450, 800
+CROP_W = PREV_H * 3 // 2
+SIDE = (PREV_W - CROP_W) // 2
+COUNTDOWN_S = 3
+
+
+def blend(frame, overlay):
+    arr, box = overlay
+    if box is None:
+        return frame
+    x0, y0, x1, y1 = box
+    f = frame[y0:y1, x0:x1, :3].astype(np.uint16)
+    o = arr[y0:y1, x0:x1, :3].astype(np.uint16)
+    a = arr[y0:y1, x0:x1, 3:4].astype(np.uint16)
+    frame[y0:y1, x0:x1, :3] = ((o * a + f * (255 - a)) // 255).astype(np.uint8)
+    return frame
+
+def build_overlays():
+    big = ImageFont.load_default(size=200)
+    small = ImageFont.load_default(size=36)
+    white, black = (255, 255, 255, 255), (0, 0, 0, 255)
+
+    countdown = {
+        n: make_overlay(lambda d, n=n: d.text((PREV_W // 2, PREV_H // 2), str(n), font=big, fill=white, anchor="mm", stroke_width=6, stroke_fill=black))
+        for n in range(1, COUNTDOWN_S + 1)
+    }
+    counter = {
+        i: make_overlay(lambda d, i=i: d.text((PREV_W - SIDE - 10,10),f"{i} / 4", font=small, fill=white, anchor="ra", stroke_width=3, stroke_fill=black))
+        for i in range(1, 5)
+    }
+    return countdown, counter
+
+def dim_sides(frame):
+    frame[:, :SIDE, :3] //= 2
+    frame[:, PREV_W - SIDE:, :3] //= 2
 
 def camera_init():
     picam2 = Picamera2()
@@ -53,20 +89,31 @@ def write_frame(frame):
     # Select rows 15 to 464 and bytes 0 to 3199
     fb[y0:y0 + h, :w * 4] = frame.reshape(h, w * 4)
 
-def live_preview(picam2, seconds):
+def live_preview(picam2, seconds, countdown=None, counter=None):
     end = time.monotonic() + seconds
-    while time.monotonic() < end:
-        write_frame(picam2.capture_array())
+    while True:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            break
+        frame = picam2.capture_array()
+        dim_sides(frame)
+        if counter is not None:
+            blend(frame, counter)
+        if countdown is not None:
+            digit = math.ceil(remaining)       # 3, 2, 1
+            if digit in countdown:
+                blend(frame, countdown[digit])
+        write_frame(frame)
 
-def taking_pics(picam2, capture_config, preview_config,):
+def taking_pics(picam2, capture_config, preview_config, countdown, counter):
     pics = []
     picam2.configure(preview_config)
-    picam2.start(show_preview=True)
+    picam2.start()
 
     # Uncomment if you want to see picture take
     # picam2.capture_file("test.jpg")
     for i in range(4):
-        live_preview(picam2, COUNTDOWN_S)
+        live_preview(picam2, COUNTDOWN_S, countdown, counter[i + 1])
         fb[:] = 255                         # Load frame buffer with white flash while photo is taken
         pics.append(picam2.switch_mode_and_capture_image(capture_config))
      
@@ -86,8 +133,15 @@ def image_processing(pics):
         y += PHOTO_H + GAP
     page.save("print.jpg", quality=95)
 
+def make_overlay(draw_fn, size=(800,450)):
+    img = Image.new("RGBA", size,(0,0,0,0))
+    draw_fn(ImageDraw.Draw(img))
+    arr = np.array(img)[..., [2,1,0,3]] # Pillows RGBA to BGRA to match camera frames
+    return arr, img.getbbox()
+
+countdown, counter = build_overlays()
 picam2, capture_config, preview_config = camera_init()
-pics = taking_pics(picam2, capture_config, preview_config)
+pics = taking_pics(picam2, capture_config, preview_config, countdown, counter)
 image_processing(pics)
 
 
