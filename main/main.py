@@ -85,6 +85,9 @@ def write_frame(frame):
     # divide the remaining 30px evenly
     y0 = (FB_H - h) // 2
 
+    fb[:y0] = 0                  # black bar above (rows 0–14)
+    fb[y0 + h:] = 0              # black bar below (rows 465–479)
+
     # reshape the frame to match the frame buffer
     # Select rows 15 to 464 and bytes 0 to 3199
     fb[y0:y0 + h, :w * 4] = frame.reshape(h, w * 4)
